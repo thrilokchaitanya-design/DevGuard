@@ -2,6 +2,12 @@
 
 DevGuard is a reliability workspace for diagnosing CI failures and checking captured API responses against OpenAPI contracts. The public demo runs on Cloudflare Workers with D1 storage; the application is also self-hostable.
 
+## Deployment status
+
+- The public demo is hosted on Cloudflare Workers with Cloudflare D1.
+- Render deployment instructions are prepared in [docs/RENDER_DEPLOYMENT.md](docs/RENDER_DEPLOYMENT.md), but no Render services have been created or deployed. A real Render API URL and frontend origin must be entered in the Render environment settings before production builds and login can work.
+- To run locally, start the backend and frontend in two terminals using [Run DevGuard locally](#local-development), or use [Docker Compose](#docker-compose).
+
 ## What it does
 
 ### CI Doctor
