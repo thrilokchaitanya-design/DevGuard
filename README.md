@@ -74,7 +74,7 @@ alembic stamp 0001_initial
 alembic upgrade head
 ```
 
-For a fresh database, run `alembic upgrade head`. Production/container startup runs migrations before Uvicorn starts. Do not stamp an unknown schema without inspecting and backing it up.
+For a fresh database, run `alembic upgrade head`. Container startup applies migrations before Uvicorn starts. PostgreSQL starts serialize that step with an advisory lock so simultaneous instances cannot run Alembic concurrently. Do not stamp an unknown schema without inspecting and backing it up.
 
 ## Docker Compose
 
@@ -104,15 +104,18 @@ Backend settings are read from environment variables or `backend/.env`:
 | `ALLOWED_ORIGINS` | Comma-separated exact frontend origins; production requires HTTPS origins. |
 | `SESSION_SECRET` | Signs the demo session cookie. Production requires 32+ characters. |
 | `DEMO_ACCESS_PASSWORD` | Shared demo passphrase. Production requires 14+ characters; provide it through a secret manager. |
+| `SESSION_COOKIE_SAMESITE` | `strict` by default; set `none` only when a cross-site frontend must send API cookies. `None` requires HTTPS secure cookies and exact CORS/CSRF configuration. |
 | `SESSION_TTL_SECONDS` | Signed session lifetime (default 28,800 seconds). |
 | `GITHUB_WEBHOOK_SECRET` | Shared HMAC secret for GitHub webhook verification. |
 | `OPENAI_API_KEY` | Optional key; submitted log excerpts are sent to OpenAI when enabled and may incur usage charges. |
 | `OPENAI_MODEL` | Optional model name (default `gpt-4o-mini`). |
 | `LOG_RETENTION_DAYS` | Age after which stored sample evidence is scrubbed (default 30 days). |
 
-Frontend build settings: production requires `VITE_API_URL=/`, which selects the same-origin Worker API or Nginx proxy; the build fails for missing or non-same-origin values. Local Vite development uses `http://localhost:8000` unless `VITE_API_URL` is explicitly set. `VITE_*` settings are public and must not contain secrets. Set `VITE_SITE_URL` only to the actual HTTPS public site origin to generate an indexable sitemap; unset/invalid values produce a disallow-all robots policy. `VITE_PUBLIC_CONTACT_EMAIL` is optional; no email address is assumed.
+Frontend build settings: production requires `VITE_API_URL`. Use `/` for the same-origin Cloudflare Worker or Nginx proxy, or a verified public HTTPS API origin for a separate backend; the build rejects missing, local, insecure, and non-origin values. Local Vite development uses `http://localhost:8000` unless `VITE_API_URL` is explicitly set. `VITE_*` settings are public and must not contain secrets. Set `VITE_SITE_URL` only to the actual HTTPS public site origin to generate an indexable sitemap; unset/invalid values produce a disallow-all robots policy. `VITE_PUBLIC_CONTACT_EMAIL` is optional; no email address is assumed.
 
 The Cloudflare demo uses a shared operator-managed passphrase and Cloudflare D1. Access the live site at https://devguard.thrilokchaitanya.workers.dev. Demo access is shared and is not suitable for private customer logs. Optional OpenAI analysis and GitHub webhook ingestion require operator-provided secrets. For Cloudflare deployment details, D1 migrations, and secret configuration, see [backend/cloudflare/README.md](backend/cloudflare/README.md). For self-hosted production, use a secret manager, secure and back up PostgreSQL, and validate the legal/privacy drafts before accepting real user data.
+
+For a separate Render API + static frontend + managed PostgreSQL deployment, follow [docs/RENDER_DEPLOYMENT.md](docs/RENDER_DEPLOYMENT.md). The Render backend URL must be created in your account before setting the frontend build variable; this repository does not assume or publish a Render service hostname.
 
 ## API
 

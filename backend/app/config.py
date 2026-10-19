@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     github_webhook_secret: str = ""
     allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080"
     session_secret: str = ""
+    session_cookie_samesite: str = "strict"
     demo_access_password: str = ""
     session_ttl_seconds: int = 28800
     openai_api_key: str = ""
@@ -33,5 +34,20 @@ class Settings(BaseSettings):
                 raise ValueError("Production ALLOWED_ORIGINS must list specific HTTPS origins.")
             if any(not origin.startswith("https://") for origin in self.cors_origins):
                 raise ValueError("Production ALLOWED_ORIGINS must use HTTPS.")
+            if not self.database_url.lower().startswith(("postgres://", "postgresql://", "postgresql+psycopg://")):
+                raise ValueError("Production requires a PostgreSQL DATABASE_URL; local SQLite is not persistent production storage.")
+        if self.session_cookie_samesite.lower() not in {"strict", "lax", "none"}:
+            raise ValueError("SESSION_COOKIE_SAMESITE must be Strict, Lax, or None.")
+        if self.session_cookie_samesite.lower() == "none" and self.app_env.lower() != "production":
+            raise ValueError("SESSION_COOKIE_SAMESITE=None requires APP_ENV=production and secure cookies.")
+
+
+def sqlalchemy_database_url(value: str) -> str:
+    """Use the psycopg 3 driver declared in requirements for Render Postgres URLs."""
+    if value.startswith("postgres://"):
+        return "postgresql+psycopg://" + value[len("postgres://"):]
+    if value.startswith("postgresql://"):
+        return "postgresql+psycopg://" + value[len("postgresql://"):]
+    return value
 
 settings = Settings()

@@ -46,3 +46,7 @@ class LoginRateLimit:
 login_limiter = LoginRateLimit()
 
 
+def session_cookie_samesite() -> str:
+    return settings.session_cookie_samesite.lower()
+
+

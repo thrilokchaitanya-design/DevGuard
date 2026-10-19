@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, ApiError, checkApiHealth, errorMessage } from './api'
+import { api, ApiError, checkApiHealth, errorMessage, setSessionCsrfToken } from './api'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -22,6 +22,18 @@ describe('API client', () => {
     const [, init] = fetchMock.mock.calls[0]
     expect(init.credentials).toBe('include')
     expect(new Headers(init.headers).get('X-CSRF-Token')).toBe('token-123')
+  })
+
+  it('sends a CSRF token returned by login when the API is on another origin', async () => {
+    setSessionCsrfToken('cross-origin-token')
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api('/api/issues/3', { method: 'PATCH', body: '{"status":"resolved"}' })
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(new Headers(init.headers).get('X-CSRF-Token')).toBe('cross-origin-token')
+    setSessionCsrfToken(undefined)
   })
 
   it('uses a safe message for object-valued error details', async () => {

@@ -3,7 +3,7 @@ import hmac
 import json
 import uuid
 
-from app.config import settings
+from app.config import settings, sqlalchemy_database_url
 from app.services.diagnostics import DiagnosticService
 
 
@@ -18,6 +18,7 @@ def test_health_readiness_and_diagnostics_auth(client):
         headers={"Origin": "http://testserver"},
     )
     assert login.status_code == 200
+    assert any("SameSite=strict" in cookie for cookie in login.headers.get_list("set-cookie"))
     csrf = login.json()["csrf_token"]
     assert client.get("/api/overview").json()["total_issues"] == 0
 
@@ -35,6 +36,27 @@ def test_health_readiness_and_diagnostics_auth(client):
     assert response.status_code == 200
     assert response.json()["diagnosis"]["summary"] == "A required Python module is missing"
     assert response.json()["issue"]["occurrences"] == 1
+
+
+def test_render_postgres_urls_use_installed_psycopg_driver():
+    assert sqlalchemy_database_url("postgres://user:pass@host/db") == "postgresql+psycopg://user:pass@host/db"
+    assert sqlalchemy_database_url("postgresql://user:pass@host/db") == "postgresql+psycopg://user:pass@host/db"
+    assert sqlalchemy_database_url("sqlite:///./devguard.db") == "sqlite:///./devguard.db"
+
+
+def test_cross_site_production_cookies_are_secure_when_enabled(client, monkeypatch):
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "session_cookie_samesite", "none")
+    monkeypatch.setattr(settings, "allowed_origins", "https://frontend.example.com")
+    login = client.post(
+        "/api/auth/login",
+        json={"password": "test-passphrase-012345"},
+        headers={"Origin": "https://frontend.example.com"},
+    )
+    assert login.status_code == 200
+    cookies = login.headers.get_list("set-cookie")
+    assert len(cookies) == 2
+    assert all("Secure" in cookie and "SameSite=none" in cookie for cookie in cookies)
 
 
 def test_frontend_origin_gets_cors_headers_on_auth_errors(client):

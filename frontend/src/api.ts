@@ -21,6 +21,11 @@ function normalizeApiBase(value: string | undefined): string {
 
 const API_BASE = normalizeApiBase(import.meta.env.VITE_API_URL)
 const DEFAULT_TIMEOUT_MS = 15_000
+let sessionCsrfToken = ''
+
+export function setSessionCsrfToken(token: string | undefined): void {
+  sessionCsrfToken = typeof token === 'string' ? token : ''
+}
 
 function safeText(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
@@ -38,6 +43,7 @@ function statusMessage(status: number, detail: unknown): string {
 }
 
 function csrfToken(): string {
+  if (sessionCsrfToken) return sessionCsrfToken
   const value = document.cookie.split('; ').find(row => row.startsWith('devguard_csrf='))?.split('=').slice(1).join('=')
   if (!value) return ''
   try { return decodeURIComponent(value) } catch { return '' }

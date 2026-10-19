@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import desc, func, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
-from app.auth import CSRF_COOKIE, SESSION_COOKIE, issue_session, login_limiter, read_session
+from app.auth import CSRF_COOKIE, SESSION_COOKIE, issue_session, login_limiter, read_session, session_cookie_samesite
 from app.config import settings
 from app.database import Base, SessionLocal, engine, get_db
 from app.models import AuthSession, DiagnosticIssue, ErrorFingerprint, WebhookDelivery, WorkflowRun
@@ -180,8 +180,9 @@ def login(body: LoginRequest, request: Request, response: Response, db: Session 
     db.add(AuthSession(session_id=payload["jti"], expires_at=datetime.now(timezone.utc) + timedelta(seconds=settings.session_ttl_seconds)))
     db.commit()
     secure = settings.app_env.lower() == "production"
-    response.set_cookie(SESSION_COOKIE, token, max_age=settings.session_ttl_seconds, httponly=True, secure=secure, samesite="strict", path="/")
-    response.set_cookie(CSRF_COOKIE, csrf, max_age=settings.session_ttl_seconds, httponly=False, secure=secure, samesite="strict", path="/")
+    samesite = session_cookie_samesite()
+    response.set_cookie(SESSION_COOKIE, token, max_age=settings.session_ttl_seconds, httponly=True, secure=secure, samesite=samesite, path="/")
+    response.set_cookie(CSRF_COOKIE, csrf, max_age=settings.session_ttl_seconds, httponly=False, secure=secure, samesite=samesite, path="/")
     return {"authenticated": True, "csrf_token": csrf, "mode": "shared-demo"}
 
 
@@ -193,8 +194,9 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
         if record and not record.revoked_at:
             record.revoked_at = datetime.now(timezone.utc)
             db.commit()
-    response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, secure=settings.app_env.lower() == "production", samesite="strict")
-    response.delete_cookie(CSRF_COOKIE, path="/", httponly=False, secure=settings.app_env.lower() == "production", samesite="strict")
+    samesite = session_cookie_samesite()
+    response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, secure=settings.app_env.lower() == "production", samesite=samesite)
+    response.delete_cookie(CSRF_COOKIE, path="/", httponly=False, secure=settings.app_env.lower() == "production", samesite=samesite)
     return {"authenticated": False}
 
 

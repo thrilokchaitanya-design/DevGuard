@@ -6,10 +6,18 @@ describe('production API URL configuration', () => {
     expect(validateProductionApiUrl('/')).toBe('/')
   })
 
-  it('rejects missing and non-same-origin production URLs', () => {
+  it('accepts a public HTTPS API origin', () => {
+    expect(validateProductionApiUrl('https://api.example.com/')).toBe('https://api.example.com')
+    expect(validateProductionApiUrl('https://devguard-api.onrender.com')).toBe('https://devguard-api.onrender.com')
+  })
+
+  it('rejects missing, insecure, local, and malformed production URLs', () => {
     expect(() => validateProductionApiUrl(undefined)).toThrow(/require VITE_API_URL/)
     expect(() => validateProductionApiUrl('')).toThrow(/require VITE_API_URL/)
-    expect(() => validateProductionApiUrl('http://localhost:8000')).toThrow(/same-origin API requests/)
-    expect(() => validateProductionApiUrl('https://api.example.com')).toThrow(/same-origin API requests/)
+    expect(() => validateProductionApiUrl('http://api.example.com')).toThrow(/public HTTPS origin/)
+    expect(() => validateProductionApiUrl('https://localhost:8000')).toThrow(/public HTTPS origin/)
+    expect(() => validateProductionApiUrl('https://127.0.0.1')).toThrow(/public HTTPS origin/)
+    expect(() => validateProductionApiUrl('https://api.example.com/api')).toThrow(/public HTTPS origin/)
+    expect(() => validateProductionApiUrl('https://user:pass@api.example.com')).toThrow(/public HTTPS origin/)
   })
 })
