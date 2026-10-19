@@ -1,113 +1,154 @@
-﻿# DevGuard
+# DevGuard
 
-**CI diagnostics and API contract monitoring, deterministic first and AI enhanced second.** DevGuard groups recurring CI failures with stable fingerprints, explains common failure signatures, and checks observed API responses against OpenAPI 3.x contracts. It keeps working without an AI key; an optional OpenAI integration can add structured diagnosis to the rule-based result.
+DevGuard is a self-hostable reliability workspace for diagnosing CI failures and checking captured API responses against OpenAPI contracts. It is a portfolio/demo project; no hosted SaaS deployment is provided.
 
-## Features
+## What it does
 
-- Normalize timestamps, UUIDs, memory addresses, and temporary file paths before hashing logs with SHA-256.
-- Detect common Python, Node, assertion, timeout, connection, permission, and memory failures with evidence and actionable next steps.
-- Persist fingerprints, issue history, and workflow-run summaries in SQLite for local development or PostgreSQL in Docker.
-- Validate endpoint and method coverage, response status codes, JSON Schema requirements, formats, and local OpenAPI component references.
-- Verify GitHub webhook HMAC signatures and ingest completed `workflow_run` summaries.
-- Track issue state and generate a ready-to-copy pull request comment.
-- Responsive React dashboard backed by real API data. Empty metrics remain empty until events or analysis provide data.
+### CI Doctor
 
-## Run locally
+- Accepts submitted workflow log text and repository, branch, and step labels.
+- Normalizes volatile timestamps, numeric timestamps, UUIDs, memory addresses, and temporary paths before computing a stable SHA-256 fingerprint.
+- Runs deterministic rules for assertion failures, missing Python/Node dependencies, timeouts, refused connections, permission errors, and memory exhaustion.
+- Returns a summary, likely cause, suggested next step, confidence, severity, flaky-signal hint, and matching evidence from the log.
+- Optionally enriches the deterministic result using the OpenAI Chat Completions API when an API key is configured. Without a key, the deterministic analyzer works on its own.
+- Groups repeated fingerprints, counts occurrences, and creates or updates repository issues. Issues can be searched in the workspace and moved through open, investigating, and resolved states.
 
-Requires Python 3.10+ and Node.js 20+.
+### Spec Detective
 
-### Backend
+- Accepts an OpenAPI 3.x JSON document and a captured response path, method, status, and JSON payload.
+- Matches concrete paths to templated OpenAPI paths, checks whether the operation and response status are documented, and validates JSON payloads against response schemas.
+- Supports local component references and JSON Schema formats; rejects external references to prevent network fetches.
+- Returns bounded, actionable findings without exposing internal exception details.
+
+### GitHub workflow events
+
+- Accepts GitHub `workflow_run` webhook deliveries, verifies the raw request body using `X-Hub-Signature-256`, and rejects invalid signatures.
+- Deduplicates GitHub delivery IDs and upserts completed workflow summaries. The dashboard derives workflow totals and success rates from observed records.
+- Generates copyable pull-request comment Markdown for an issue.
+- Does not install a GitHub App, fetch workflow logs, authorize individual repositories, or publish comments automatically. GitHub workflow events do not contain full job logs; submit logs separately to CI Doctor.
+
+### Workspace and public website
+
+- Dashboard panels display API connection state and persisted issue/workflow data rather than fabricated metrics. Empty values remain empty until data arrives.
+- Includes About, Documentation, Privacy, Terms, Contact/profile links, sign-in, and not-found/error states.
+- The demo sign-in is one shared passphrase protecting one shared workspace. It is not OAuth, individual accounts, or per-user data isolation. Local development uses loopback-only access.
+- Privacy and terms pages are project drafts, not legal advice or a claim of regulatory compliance.
+
+## Requirements
+
+- Python 3.10 or newer (Docker uses Python 3.12).
+- Node.js 20 or newer (Docker uses Node.js 22).
+- Docker Compose v2 only for the container stack.
+
+## Local development
+
+From the project root, create/activate an environment and install the backend dependencies:
 
 ```powershell
 cd backend
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
+alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
-The backend creates a local `devguard.db` SQLite database on first start. Interactive API docs are at `http://localhost:8000/docs`.
-
-### Frontend
+For an existing repository-level `.venv`, activate that environment instead. The backend defaults to loopback-only local access and SQLite at `backend/devguard.db`. Startup checks database reachability and performs retention cleanup. API docs are available at `http://127.0.0.1:8000/docs` while the server runs.
 
 In a second terminal:
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173`. To use the example configuration locally, copy `..\.env.example` to `backend\.env`. Configure a different frontend API base with `frontend/.env.local`:
+Open `http://127.0.0.1:5173`. Set `VITE_API_URL` in a frontend `.env.local` only when the API is at another address. Keep the API CORS allowlist in `ALLOWED_ORIGINS` aligned with the browser origin.
 
-```env
-VITE_API_URL=http://localhost:8000
+### Existing local SQLite database
+
+Local development creates missing tables without dropping existing data. If the database predates Alembic, make a backup first, then from `backend` run:
+
+```powershell
+alembic stamp 0001_initial
+alembic upgrade head
 ```
+
+For a fresh database, run `alembic upgrade head`. Production/container startup runs migrations before Uvicorn starts. Do not stamp an unknown schema without inspecting and backing it up.
 
 ## Docker Compose
 
-From the project root, copy `.env.example` to `.env`, set a strong `POSTGRES_PASSWORD`, then run:
+Copy `.env.example` to `.env`. Generate strong secrets (hex values are URL-safe for the PostgreSQL URL), fill `POSTGRES_PASSWORD`, `SESSION_SECRET`, and `DEMO_ACCESS_PASSWORD`, then run:
 
-```sh
+```powershell
 docker compose up --build
 ```
 
-The dashboard will be at `http://localhost:8080`; the API is at `http://localhost:8000`. The Compose setup includes a persistent PostgreSQL volume. The example database password is only for local development.
+Generate example random values with PowerShell:
 
-## GitHub Actions webhook
-
-Configure `GITHUB_WEBHOOK_SECRET` on the backend and the same secret in your GitHub repository webhook settings. Set the payload URL to `https://YOUR_HOST/api/webhooks/github`, choose JSON content type, and subscribe to `workflow_run`. DevGuard verifies `X-Hub-Signature-256`, rejects missing or invalid signatures, and stores completed run summaries. GitHub does not include job logs in this event; submit the failure log through `POST /api/diagnostics/analyze` (or your own log collection flow) for fingerprinting and diagnosis.
-
-## API quick reference
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/health` | Liveness check |
-| `GET` | `/api/overview` | Real issue and workflow counters |
-| `GET` | `/api/issues` | List tracked issues; optional `status` and `limit` |
-| `PATCH` | `/api/issues/{id}` | Change issue status |
-| `POST` | `/api/diagnostics/analyze` | Fingerprint logs and create/update diagnosis |
-| `POST` | `/api/spec/validate` | Compare an observed response with an OpenAPI document |
-| `GET` | `/api/workflows` | Recent GitHub workflow run summaries |
-| `POST` | `/api/issues/{id}/pr-comment` | Generate Markdown for a PR comment |
-| `POST` | `/api/webhooks/github` | Verify and ingest GitHub workflow events |
-
-### Analyze a CI failure
-
-```sh
-curl -X POST http://localhost:8000/api/diagnostics/analyze \
-  -H 'Content-Type: application/json' \
-  -d '{"repository":"acme/api","branch":"main","step_name":"pytest","logs":"ModuleNotFoundError: No module named httpx"}'
+```powershell
+[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
 ```
 
-### Validate a response
-
-```json
-{
-  "spec": {
-    "openapi": "3.1.0",
-    "info": {"title": "Example", "version": "1"},
-    "paths": {"/health": {"get": {"responses": {"200": {"description": "OK", "content": {"application/json": {"schema": {"type": "object", "required": ["status"], "properties": {"status": {"type": "string"}}}}}}}}}}
-  },
-  "path": "/health",
-  "method": "GET",
-  "status_code": 200,
-  "payload": {"status": "ok"}
-}
-```
+The frontend is at `http://localhost:8080`; the API is at `http://localhost:8000`. Both ports bind to loopback on the host. PostgreSQL data is stored in the `pgdata` volume. This is a local container example, not a managed or publicly deployed service.
 
 ## Configuration
 
-| Variable | Default | Notes |
+Backend settings are read from environment variables or `backend/.env`:
+
+| Setting | Purpose |
+| --- | --- |
+| `APP_ENV` | `development` locally; set `production` to enforce deployment checks and secure cookies. |
+| `AUTH_MODE` | `local` for loopback-only development; `demo` for a shared passphrase workspace. |
+| `DATABASE_URL` | SQLite locally or PostgreSQL with the `psycopg` driver. |
+| `ALLOWED_ORIGINS` | Comma-separated exact frontend origins; production requires HTTPS origins. |
+| `SESSION_SECRET` | Signs the demo session cookie. Production requires 32+ characters. |
+| `DEMO_ACCESS_PASSWORD` | Shared demo passphrase. Production requires 14+ characters; provide it through a secret manager. |
+| `SESSION_TTL_SECONDS` | Signed session lifetime (default 28,800 seconds). |
+| `GITHUB_WEBHOOK_SECRET` | Shared HMAC secret for GitHub webhook verification. |
+| `OPENAI_API_KEY` | Optional key; submitted log excerpts are sent to OpenAI when enabled and may incur usage charges. |
+| `OPENAI_MODEL` | Optional model name (default `gpt-4o-mini`). |
+| `LOG_RETENTION_DAYS` | Age after which stored sample evidence is scrubbed (default 30 days). |
+
+Frontend build settings: `VITE_API_URL` sets the API base URL. Set `VITE_SITE_URL` only to the actual HTTPS public site origin to generate an indexable sitemap; unset/invalid values produce a disallow-all robots policy. `VITE_PUBLIC_CONTACT_EMAIL` is optional; no email address is assumed.
+
+Production startup fails unless `AUTH_MODE=demo`, the session secret and passphrase meet their minimum lengths, and all allowed origins use HTTPS. Demo access remains shared and is not suitable for private customer logs. Put a public deployment behind TLS, enforce body-size and rate limits at the edge (application rate limits are per-process), use a secret manager, secure/backup PostgreSQL, and validate the legal/privacy drafts before accepting real user data. No public deployment has been made as part of this release.
+
+## API
+
+The following routes are available. Except health/readiness and the GitHub webhook, `/api/*` workspace routes require loopback access in local mode or a valid demo session in demo mode. Mutating demo requests require the session CSRF token and an allowlisted `Origin`.
+
+| Method | Path | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | `sqlite:///./devguard.db` | SQLAlchemy URL; use PostgreSQL for shared deployments |
-| `FRONTEND_ORIGIN` | `http://localhost:5173` | Allowed browser origin |
-| `GITHUB_WEBHOOK_SECRET` | empty | Required to enable signed webhook ingestion |
-| `OPENAI_API_KEY` | empty | Optional; sent to OpenAI only when enabled |
-| `OPENAI_MODEL` | `gpt-4o-mini` | Optional structured diagnosis model |
-| `VITE_API_URL` | `http://localhost:8000` | Frontend API base URL at build time |
+| `GET` | `/api/health` | Liveness check. |
+| `GET` | `/api/ready` | Database readiness check. |
+| `POST` | `/api/auth/login` | Sign in to shared demo mode; sets HTTP-only signed session and CSRF cookies. |
+| `GET` | `/api/auth/session` | Read session state. |
+| `POST` | `/api/auth/logout` | Revoke the server-side session and clear cookies. |
+| `GET` | `/api/overview` | Issue and observed workflow counters plus recent issues. |
+| `GET` | `/api/issues` | List issues; supports `status` and bounded `limit` filters. |
+| `PATCH` | `/api/issues/{id}` | Change issue status. |
+| `POST` | `/api/diagnostics/analyze` | Fingerprint and diagnose submitted log text. |
+| `POST` | `/api/spec/validate` | Validate a captured response against OpenAPI. |
+| `GET` | `/api/workflows` | List recent observed workflow summaries. |
+| `POST` | `/api/issues/{id}/pr-comment` | Return copyable comment Markdown. |
+| `POST` | `/api/webhooks/github` | Verify and record signed `workflow_run` events. |
 
-## Operational notes
+## Verification
 
-This is an application foundation, not a claim that a hosted production deployment is already provisioned. Before exposing it publicly, configure TLS and a secret manager, restrict API access, add database migrations and backup/retention policies, and review AI data handling for your organization. The included GitHub webhook authenticates event origin; it does not implement GitHub App installation, repository authorization, log download, or automatic PR comment posting. The PR comment endpoint returns Markdown for a caller to post through an appropriately authorized GitHub integration.
+```powershell
+# Backend, from backend/
+ruff check --select E4,E7,E9,F app tests
+python -m pytest -q
 
+# Frontend, from frontend/
+npm test
+npm run lint
+npm run build
+```
+
+GitHub Actions runs the Alembic migration, Ruff checks, backend tests, frontend tests, ESLint, and production build for pull requests and pushes to `main`. Dependabot checks Python, npm, Docker images, and GitHub Actions weekly. The backend suite covers health/readiness, auth and revocation, CSRF rejection, deterministic diagnosis, issue grouping/status/comment generation, OpenAPI validation/external-reference rejection, webhook signatures/idempotency, and fingerprint normalization. The frontend suite covers the public landing and documentation routes.
+
+## Security reporting
+
+Report vulnerabilities through [GitHub Security Advisories](https://github.com/thrilokchaitanya-design/DevGuard/security/advisories/new). Do not include real secrets or private CI logs in public issues. Production uses should be reviewed and deployed by the operator; the repository does not claim a certification or security audit.

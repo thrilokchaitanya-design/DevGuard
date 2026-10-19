@@ -4,7 +4,7 @@
     environment:
       POSTGRES_DB: devguard
       POSTGRES_USER: devguard
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devguard-local-only}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a generated hex secret in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -12,27 +12,48 @@
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+psycopg://devguard:${POSTGRES_PASSWORD:-devguard-local-only}@db:5432/devguard
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
+      APP_ENV: ${APP_ENV:-development}
+      AUTH_MODE: demo
+      DATABASE_URL: postgresql+psycopg://devguard:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/devguard
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+      DEMO_ACCESS_PASSWORD: ${DEMO_ACCESS_PASSWORD:?Set DEMO_ACCESS_PASSWORD in .env}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-28800}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
   frontend:
     build:
       context: ./frontend
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        VITE_SITE_URL: ${VITE_SITE_URL:-}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 volumes:
   pgdata:

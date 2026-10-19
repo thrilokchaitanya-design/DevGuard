@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Check, CheckCircle2, ChevronRight, CircleHelp, Clock3, Code2, Command, Copy, ExternalLink, GitBranch, Github, Menu, Radio, RefreshCw, Search, Settings2, Shield, Sparkles, Terminal, X } from 'lucide-react'
 
 type Issue = { id:number; title:string; status:string; severity:string; repository:string; branch:string; occurrences:number; fingerprint:string; sample_log:string; ai_summary:string|null; diagnosis?:Record<string,any>; created_at:string; updated_at:string }
@@ -6,20 +7,25 @@ type Overview = { active_issues:number; total_issues:number; resolved_issues:num
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const demoSpec = JSON.stringify({openapi:'3.1.0',info:{title:'Sample API',version:'1.0'},paths:{'/v1/users':{get:{responses:{'200':{description:'Users',content:{'application/json':{schema:{type:'array',items:{type:'object',required:['id','email'],properties:{id:{type:'integer'},email:{type:'string',format:'email'}}}}}}}}}}}},null,2)
 const demoLogs = `2026-10-19T09:21:31.340Z Running integration tests\n2026-10-19T09:21:33.002Z ModuleNotFoundError: No module named 'httpx'\n2026-10-19T09:21:33.102Z Error: Process completed with exit code 1.`
-async function api<T>(path:string, init?:RequestInit):Promise<T>{const r=await fetch(`${API}${path}`,{...init,headers:{'Content-Type':'application/json',...init?.headers}});const body=await r.json().catch(()=>({detail:'Unexpected response'}));if(!r.ok)throw new Error(body.detail||`Request failed (${r.status})`);return body}
+class ApiError extends Error { constructor(message:string,public status:number){super(message)} }
+function csrfCookie(){return document.cookie.split('; ').find(row=>row.startsWith('devguard_csrf='))?.split('=').slice(1).join('=')||''}
+async function api<T>(path:string, init?:RequestInit):Promise<T>{const method=(init?.method||'GET').toUpperCase();const headers:Record<string,string>={'Content-Type':'application/json',...(init?.headers as Record<string,string>||{})};if(['POST','PATCH','PUT','DELETE'].includes(method)&&csrfCookie())headers['X-CSRF-Token']=decodeURIComponent(csrfCookie());const r=await fetch(`${API}${path}`,{...init,method,credentials:'include',headers});const body=await r.json().catch(()=>({detail:'Unexpected response'}));if(!r.ok)throw new ApiError(body.detail||`Request failed (${r.status})`,r.status);return body}
 function timeAgo(date:string){const mins=Math.max(1,Math.floor((Date.now()-new Date(date).getTime())/60000));return mins<60?`${mins}m ago`:mins<1440?`${Math.floor(mins/60)}h ago`:`${Math.floor(mins/1440)}d ago`}
-function App(){
+function Dashboard(){
+  const navigate=useNavigate()
   const [page,setPage]=useState<'overview'|'ci'|'spec'|'issues'>('overview')
   const [overview,setOverview]=useState<Overview|null>(null)
   const [issues,setIssues]=useState<Issue[]>([])
   const [loading,setLoading]=useState(true)
+  const [sessionReady,setSessionReady]=useState(false)
+  const [apiState,setApiState]=useState<'checking'|'online'|'offline'>('checking')
   const [mobileOpen,setMobileOpen]=useState(false)
   const [integrationOpen,setIntegrationOpen]=useState(false)
   const [query,setQuery]=useState('')
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
   const [logs,setLogs]=useState('')
-  const [repo,setRepo]=useState('acme/api-service')
+  const [repo,setRepo]=useState('')
   const [branch,setBranch]=useState('main')
   const [diagnosis,setDiagnosis]=useState<any>(null)
   const [spec,setSpec]=useState('')
@@ -28,18 +34,21 @@ function App(){
   const [method,setMethod]=useState('GET')
   const [status,setStatus]=useState('200')
   const [specResult,setSpecResult]=useState<any>(null)
-  const refresh=useCallback(async()=>{setLoading(true);try{const [o,i]=await Promise.all([api<Overview>('/api/overview'),api<Issue[]>('/api/issues')]);setOverview(o);setIssues(i);setError('')}catch(e){setError(e instanceof Error?e.message:'Could not connect to DevGuard API')}finally{setLoading(false)}},[])
-  useEffect(()=>{void refresh();const timer=window.setInterval(()=>void refresh(),30000);return()=>window.clearInterval(timer)},[refresh])
+  const refresh=useCallback(async()=>{setLoading(true);try{const [o,i]=await Promise.all([api<Overview>('/api/overview'),api<Issue[]>('/api/issues')]);setOverview(o);setIssues(i);setError('');setApiState('online')}catch(e){setError(e instanceof Error?e.message:'Could not connect to DevGuard API');setApiState('offline')}finally{setLoading(false)}},[])
+  useEffect(()=>{let live=true;api<{authenticated:boolean}>('/api/auth/session').then(session=>{if(!live)return;if(!session.authenticated){navigate('/login?next=%2Fapp');return}setSessionReady(true);void refresh()}).catch(e=>{if(live){setError(e instanceof Error?e.message:'Could not establish a session');setApiState('offline');setSessionReady(true)}});return()=>{live=false}},[navigate,refresh])
+  useEffect(()=>{if(!sessionReady)return;const timer=window.setInterval(()=>void refresh(),30000);return()=>window.clearInterval(timer)},[sessionReady,refresh])
+  const signOut=async()=>{try{await api('/api/auth/logout',{method:'POST'})}catch{}navigate('/login')}
   const runAnalysis=async()=>{setBusy(true);setError('');try{const result=await api<any>('/api/diagnostics/analyze',{method:'POST',body:JSON.stringify({logs,repository:repo,branch,step_name:'CI workflow'})});setDiagnosis(result);await refresh()}catch(e){setError(e instanceof Error?e.message:'Analysis failed')}finally{setBusy(false)}}
   const runSpec=async()=>{setBusy(true);setError('');try{const result=await api<any>('/api/spec/validate',{method:'POST',body:JSON.stringify({spec:JSON.parse(spec),path:endpoint,method,status_code:Number(status),payload:JSON.parse(payload)})});setSpecResult(result)}catch(e){setError(e instanceof Error?e.message:'Validation failed')}finally{setBusy(false)}}
   const setIssueStatus=async(issue:Issue,next:string)=>{try{await api(`/api/issues/${issue.id}`,{method:'PATCH',body:JSON.stringify({status:next})});await refresh()}catch(e){setError(e instanceof Error?e.message:'Could not update issue')}}
   const nav=(p:typeof page)=>{setPage(p);setMobileOpen(false);setError('')}
   const filtered=issues.filter(i=>`${i.title} ${i.repository} ${i.branch}`.toLowerCase().includes(query.toLowerCase()))
   const stats=[{label:'Active issues',value:overview?.active_issues??'—',sub:'Across tracked repositories',icon:AlertTriangle,tint:'orange',trend:overview?.active_issues?`${overview.active_issues} to review`:'No active issues'}, {label:'CI success rate',value:overview?.success_rate==null?'—':`${overview.success_rate}%`,sub:`${overview?.workflow_runs??0} workflow runs`,icon:Activity,tint:'green',trend:overview?.success_rate==null?'Waiting for runs':'All time'}, {label:'API drift',value:'—',sub:'Run a contract check',icon:Code2,tint:'purple',trend:'Spec Detective'}, {label:'Resolved',value:overview?.resolved_issues??0,sub:'Issues closed',icon:CheckCircle2,tint:'blue',trend:'Lifetime'}]
-  return <div className="app-shell">
+  if(!sessionReady)return <div className="auth-loading" role="status">Checking your DevGuard session…</div>
+  return <><a className="skip-link" href="#main-content">Skip to main content</a><div className="app-shell">
     <aside className={`sidebar ${mobileOpen?'sidebar-open':''}`}>
       <div className="brand"><div className="brand-mark"><Shield size={18} strokeWidth={2.2}/><span/></div><div><b>devguard</b><small>RELIABILITY WORKSPACE</small></div><button className="icon-btn mobile-close" onClick={()=>setMobileOpen(false)} aria-label="Close navigation"><X size={17}/></button></div>
-      <div className="workspace"><div className="workspace-avatar">A</div><div className="workspace-name"><strong>Acme Engineering</strong><small>Free workspace</small></div><ChevronRight size={15} className="muted"/></div>
+      <div className="workspace"><div className="workspace-avatar">A</div><div className="workspace-name"><strong>DevGuard demo</strong><small>Free workspace</small></div><ChevronRight size={15} className="muted"/></div>
       <div className="nav-label">WORKSPACE</div>
       <nav className="nav-list">
         <button className={`nav-item ${page==='overview'?'active':''}`} onClick={()=>nav('overview')}><Command size={17}/><span>Overview</span><kbd>⌘ 1</kbd></button>
@@ -48,16 +57,16 @@ function App(){
         <button className={`nav-item ${page==='issues'?'active':''}`} onClick={()=>nav('issues')}><CircleHelp size={17}/><span>Issues</span>{overview?.active_issues? <em>{overview.active_issues}</em>:null}</button>
       </nav>
       <div className="nav-label integrations-label">INTEGRATIONS</div><button className="nav-item connect-link" onClick={()=>setIntegrationOpen(true)}><Github size={17}/><span>GitHub</span><span className="connect-status">Setup</span></button>
-      <div className="sidebar-bottom"><div className="signal-card"><div className="signal-head"><span className="signal-pulse"/> SYSTEM STATUS</div><div className="signal-title">{error?'API unreachable':'All systems operational'}</div><div className="signal-sub">{error?'Start the backend to connect':'Diagnostics are running normally'}</div><div className="signal-bars">{Array.from({length:27},(_,i)=><i key={i} style={{height:`${10+((i*17+3)%24)}px`,opacity:.25+((i*7)%7)/10}}/>)}</div></div><button className="user-row"><div className="user-avatar">KC</div><div><strong>Krishna Chaitanya</strong><small>Personal workspace</small></div><Settings2 size={16}/></button></div>
+      <div className="sidebar-bottom"><div className="signal-card"><div className="signal-head"><span className="signal-pulse"/> SYSTEM STATUS</div><div className="signal-title">{apiState==='checking'?'Checking backend…':apiState==='online'?'API is responding':'API unavailable'}</div><div className="signal-sub">{apiState==='offline'?'Check that the backend is running':'Connected to the DevGuard API'}</div></div><button className="user-row" onClick={()=>void signOut()} title="Sign out"><div className="user-avatar">TC</div><div><strong>Thrilok Chaitanya</strong><small>Sign out</small></div><Settings2 size={16}/></button></div>
     </aside>
     {mobileOpen&&<button className="scrim" onClick={()=>setMobileOpen(false)} aria-label="Close menu"/>}
-    <main className="main-shell">
-      <header className="topbar"><div className="topbar-left"><button className="icon-btn menu-button" onClick={()=>setMobileOpen(true)} aria-label="Open menu"><Menu size={18}/></button><div className="breadcrumbs"><span>Workspace</span><ChevronRight size={13}/><strong>{page==='overview'?'Overview':page==='ci'?'CI Doctor':page==='spec'?'Spec Detective':'Issues'}</strong></div></div><div className="top-actions"><div className="api-indicator"><span className={error?'offline':''}/>{error?'API offline':'API connected'}</div><button className="icon-btn refresh-btn" onClick={()=>void refresh()} aria-label="Refresh data"><RefreshCw size={15}/></button><div className="top-divider"/><div className="top-avatar">KC</div></div></header>
+    <main id="main-content" className="main-shell">
+      <header className="topbar"><div className="topbar-left"><button className="icon-btn menu-button" onClick={()=>setMobileOpen(true)} aria-label="Open menu"><Menu size={18}/></button><div className="breadcrumbs"><span>Workspace</span><ChevronRight size={13}/><strong>{page==='overview'?'Overview':page==='ci'?'CI Doctor':page==='spec'?'Spec Detective':'Issues'}</strong></div></div><div className="top-actions"><div className="api-indicator"><span className={apiState==='online'?'':'offline'}/>{apiState==='checking'?'Checking API':apiState==='online'?'API connected':'API offline'}</div><button className="icon-btn refresh-btn" onClick={()=>void refresh()} aria-label="Refresh data"><RefreshCw size={15}/></button><div className="top-divider"/><div className="top-avatar">TC</div></div></header>
       <div className="content">
-        <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line"/>ENGINEERING / RELIABILITY</div><h1>{page==='overview'?'Your systems, at a glance.':page==='ci'?'Find the signal in CI noise.':page==='spec'?'Keep your API contracts honest.':'Every issue, accounted for.'}</h1><p>{page==='overview'?'A real-time view of pipeline health and API contract drift.':page==='ci'?'Normalize failure logs, group recurring errors, and get actionable diagnosis.':page==='spec'?'Compare observed responses against your OpenAPI contract.':'Track, investigate, and resolve recurring reliability issues.'}</p></div><div className="heading-actions"><span className="updated-label"><span className="live-dot"/>LIVE DATA</span><button className="btn btn-quiet" onClick={()=>void refresh()}><RefreshCw size={14}/> Refresh</button></div></div>
-        {error&&<div className="alert error-alert"><AlertTriangle size={16}/><div><strong>Could not reach DevGuard API</strong><span>{error}. Start the backend and make sure it is listening on port 8000.</span></div><button onClick={()=>setError('')} aria-label="Dismiss"><X size={15}/></button></div>}
+        <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line"/>ENGINEERING / RELIABILITY</div><h1>{page==='overview'?'Your systems, at a glance.':page==='ci'?'Find the signal in CI noise.':page==='spec'?'Keep your API contracts honest.':'Every issue, accounted for.'}</h1><p>{page==='overview'?'A real-time view of pipeline health and API contract drift.':page==='ci'?'Normalize failure logs, group recurring errors, and get actionable diagnosis.':page==='spec'?'Compare observed responses against your OpenAPI contract.':'Track, investigate, and resolve recurring reliability issues.'}</p></div><div className="heading-actions"><span className="updated-label"><span className="live-dot"/>BACKEND SYNC</span><button className="btn btn-quiet" onClick={()=>void refresh()}><RefreshCw size={14}/> Refresh</button></div></div>
+        {error&&<div className="alert error-alert" role="alert"><AlertTriangle size={16}/><div><strong>Could not reach DevGuard API</strong><span>{error}. Start the backend and make sure it is listening on port 8000.</span></div><button onClick={()=>setError('')} aria-label="Dismiss"><X size={15}/></button></div>}
         {page==='overview'&&<>
-          <section className="stats-grid">{stats.map((s,i)=><div className={`stat-card stat-${s.tint}`} key={s.label}><div className="stat-top"><span className="stat-label">{s.label}</span><span className="stat-icon"><s.icon size={16}/></span></div><div className="stat-value">{loading?<span className="skeleton-value"/>:s.value}</div><div className="stat-bottom"><span>{s.sub}</span><span className="stat-change">{s.trend}</span></div>{i===1&&<div className="stat-sparkline"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></div>}</div>)}</section>
+          <section className="stats-grid">{stats.map((s,i)=><div className={`stat-card stat-${s.tint}`} key={s.label}><div className="stat-top"><span className="stat-label">{s.label}</span><span className="stat-icon"><s.icon size={16}/></span></div><div className="stat-value">{loading?<span className="skeleton-value"/>:s.value}</div><div className="stat-bottom"><span>{s.sub}</span><span className="stat-change">{s.trend}</span></div></div>)}</section>
           <section className="overview-grid"><div className="panel activity-panel"><div className="panel-heading"><div><h2>Recent diagnostics</h2><p>Latest detected failure patterns</p></div><button className="text-link" onClick={()=>nav('issues')}>View all <ChevronRight size={14}/></button></div>{loading?<div className="loading-state">Loading issues…</div>:overview?.recent_issues.length?<div className="issue-list">{overview.recent_issues.slice(0,5).map((issue)=><IssueRow key={issue.id} issue={issue} onClick={()=>{nav('issues')}}/>)}</div>:<EmptyState icon={<CheckCircle2 size={20}/>} title="Nothing needs attention" body="Run a CI log analysis or connect a GitHub workflow to get started."/>}</div>
           <div className="right-column"><div className="panel reliability-panel"><div className="panel-heading compact"><div><h2>Pipeline reliability</h2><p>Based on observed workflow runs</p></div><span className="chart-period">ALL TIME <ChevronRight size={12}/></span></div><div className="reliability-chart"><div className="chart-area"><div className="chart-gridlines"><i/><i/><i/></div>{overview?.workflow_runs?<div className="chart-breakdown"><div className="chart-rate">{overview.success_rate}%<small>success rate</small></div><div className="run-bar" role="img" aria-label={`${overview.successful_runs} successful, ${overview.failed_runs} failed workflow runs`}><i className="run-success" style={{width:`${overview.success_rate||0}%`}}/><i className="run-fail" style={{width:`${Math.round((overview.failed_runs/overview.workflow_runs)*100)}%`}}/></div><small className="run-total">{overview.workflow_runs} observed runs · all time</small></div>:<div className="chart-placeholder"><Activity size={23}/><span>Awaiting workflow data</span></div>}</div></div><div className="chart-legend"><span><i className="legend-green"/>Successful runs <b>{overview?.successful_runs??0}</b></span><span><i className="legend-orange"/>Failed runs <b>{overview?.failed_runs??0}</b></span></div></div>
           <div className="panel quick-panel"><div className="quick-title"><div className="quick-icon"><Sparkles size={16}/></div><div><h2>Get started</h2><p>Run your first analysis</p></div></div><button className="quick-link" onClick={()=>nav('ci')}><span><Terminal size={15}/> Analyze a CI failure</span><ChevronRight size={15}/></button><button className="quick-link" onClick={()=>nav('spec')}><span><Code2 size={15}/> Validate an API response</span><ChevronRight size={15}/></button></div></div></section>
@@ -69,16 +78,8 @@ function App(){
       <footer className="footer"><span>DEVGUARD <i>·</i> BUILT FOR RELIABLE SOFTWARE</span><span><span className="footer-live"/> DATA REFRESHES EVERY 30S</span></footer>
       </div>
     </main>
-  </div>
+  </div></>
 }
 function IssueRow({issue,onClick}:{issue:Issue;onClick:()=>void}){return <button className="issue-row" onClick={onClick}><div className={`issue-severity ${issue.severity}`}><AlertTriangle size={14}/></div><div className="issue-main"><div className="issue-title-line"><strong>{issue.title}</strong><span className={`status-pill ${issue.status}`}>{issue.status}</span></div><div className="issue-meta"><span>{issue.repository}</span><i>·</i><span><GitBranch size={12}/>{issue.branch}</span><i>·</i><span><RefreshCw size={11}/>{issue.occurrences} occurrence{issue.occurrences===1?'':'s'}</span><i>·</i><span>{timeAgo(issue.updated_at)}</span></div></div><ChevronRight size={16} className="row-chevron"/></button>}
 function EmptyState({icon,title,body,action,actionLabel}:{icon:React.ReactNode;title:string;body:string;action?:()=>void;actionLabel?:string}){return <div className="empty-state"><div className="empty-icon">{icon}</div><strong>{title}</strong><p>{body}</p>{action&&<button className="btn btn-quiet" onClick={action}>{actionLabel}<ChevronRight size={14}/></button>}</div>}
-export default App
-
-
-
-
-
-
-
-
+export default Dashboard

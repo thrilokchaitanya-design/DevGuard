@@ -9,3 +9,5 @@ backend/.env
 *.log
 .DS_Store
 *.tsbuildinfo
+/frontend/public/robots.txt
+/frontend/public/sitemap.xml

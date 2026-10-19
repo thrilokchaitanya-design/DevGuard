@@ -1,6 +1,5 @@
 ﻿import hashlib
 import re
-from datetime import datetime, timezone
 from app.schemas import Diagnosis
 
 _PATTERNS = [
