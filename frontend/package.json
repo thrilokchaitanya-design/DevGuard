@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "node scripts/generate-site-metadata.mjs && tsc -b && vite build",
+    "build": "node scripts/validate-api-url.mjs && node scripts/generate-site-metadata.mjs && tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
     "test:watch": "vitest",

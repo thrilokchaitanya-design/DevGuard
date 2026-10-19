@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     auth_mode: str = "local"
     database_url: str = "sqlite:///./devguard.db"
     github_webhook_secret: str = ""
-    allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080"
     session_secret: str = ""
     demo_access_password: str = ""
     session_ttl_seconds: int = 28800

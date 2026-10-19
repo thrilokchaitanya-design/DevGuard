@@ -6,6 +6,10 @@ __pycache__/
 *.db
 .env
 backend/.env
+backend/cloudflare/.venv-workers/
+backend/cloudflare/python_modules/
+backend/cloudflare/.wrangler/
+backend/cloudflare/.dev.vars
 *.log
 .DS_Store
 *.tsbuildinfo

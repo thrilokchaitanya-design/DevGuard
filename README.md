@@ -1,6 +1,6 @@
 # DevGuard
 
-DevGuard is a self-hostable reliability workspace for diagnosing CI failures and checking captured API responses against OpenAPI contracts. It is a portfolio/demo project; no hosted SaaS deployment is provided.
+DevGuard is a reliability workspace for diagnosing CI failures and checking captured API responses against OpenAPI contracts. The public demo runs on Cloudflare Workers with D1 storage; the application is also self-hostable.
 
 ## What it does
 
@@ -90,7 +90,7 @@ Generate example random values with PowerShell:
 [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
 ```
 
-The frontend is at `http://localhost:8080`; the API is at `http://localhost:8000`. Both ports bind to loopback on the host. PostgreSQL data is stored in the `pgdata` volume. This is a local container example, not a managed or publicly deployed service.
+The frontend is at `http://localhost:8080`; Nginx forwards same-origin `/api/*` requests to the backend service inside Compose. For direct host access, the backend is at `http://localhost:8001` (container port 8000). Both host ports bind to loopback. PostgreSQL data is stored in the `pgdata` volume. This is a local container example; the public demo runs separately on Cloudflare Workers and D1.
 
 ## Configuration
 
@@ -110,9 +110,9 @@ Backend settings are read from environment variables or `backend/.env`:
 | `OPENAI_MODEL` | Optional model name (default `gpt-4o-mini`). |
 | `LOG_RETENTION_DAYS` | Age after which stored sample evidence is scrubbed (default 30 days). |
 
-Frontend build settings: `VITE_API_URL` sets the API base URL. Set `VITE_SITE_URL` only to the actual HTTPS public site origin to generate an indexable sitemap; unset/invalid values produce a disallow-all robots policy. `VITE_PUBLIC_CONTACT_EMAIL` is optional; no email address is assumed.
+Frontend build settings: production requires `VITE_API_URL=/`, which selects the same-origin Worker API or Nginx proxy; the build fails for missing or non-same-origin values. Local Vite development uses `http://localhost:8000` unless `VITE_API_URL` is explicitly set. `VITE_*` settings are public and must not contain secrets. Set `VITE_SITE_URL` only to the actual HTTPS public site origin to generate an indexable sitemap; unset/invalid values produce a disallow-all robots policy. `VITE_PUBLIC_CONTACT_EMAIL` is optional; no email address is assumed.
 
-Production startup fails unless `AUTH_MODE=demo`, the session secret and passphrase meet their minimum lengths, and all allowed origins use HTTPS. Demo access remains shared and is not suitable for private customer logs. Put a public deployment behind TLS, enforce body-size and rate limits at the edge (application rate limits are per-process), use a secret manager, secure/backup PostgreSQL, and validate the legal/privacy drafts before accepting real user data. No public deployment has been made as part of this release.
+The Cloudflare demo uses a shared operator-managed passphrase and Cloudflare D1. Access the live site at https://devguard.thrilokchaitanya.workers.dev. Demo access is shared and is not suitable for private customer logs. Optional OpenAI analysis and GitHub webhook ingestion require operator-provided secrets. For Cloudflare deployment details, D1 migrations, and secret configuration, see [backend/cloudflare/README.md](backend/cloudflare/README.md). For self-hosted production, use a secret manager, secure and back up PostgreSQL, and validate the legal/privacy drafts before accepting real user data.
 
 ## API
 

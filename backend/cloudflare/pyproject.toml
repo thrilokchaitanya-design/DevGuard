@@ -1,0 +1,16 @@
+[project]
+name = "devguard-cloudflare"
+version = "1.1.0"
+description = "DevGuard FastAPI Worker with Cloudflare D1 persistence"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "itsdangerous>=2.2,<3.0",
+    "jsonschema[format]>=4.23,<5.0",
+]
+
+[dependency-groups]
+dev = [
+    "workers-py",
+    "workers-runtime-sdk",
+]

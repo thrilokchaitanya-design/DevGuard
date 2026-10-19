@@ -73,7 +73,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="DevGuard API", version="1.1.0", description="Deterministic-first CI diagnostics and API contract drift detection.", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"], allow_headers=["Content-Type", "X-CSRF-Token", "X-GitHub-Event", "X-Hub-Signature-256", "X-GitHub-Delivery"])
 
 
 @app.middleware("http")
@@ -127,6 +126,11 @@ async def request_security(request: Request, call_next):
     if settings.app_env.lower() == "production":
         response.headers["Strict-Transport-Security"] = "max-age=31536000"
     return response
+
+
+# Keep CORS outside request_security so browser clients receive CORS headers
+# on authentication, CSRF, and rate-limit errors as well as successful responses.
+app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"], allow_headers=["Content-Type", "X-CSRF-Token", "X-GitHub-Event", "X-Hub-Signature-256", "X-GitHub-Delivery"])
 
 
 def _session_is_active(payload: dict) -> bool:

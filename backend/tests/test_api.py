@@ -37,6 +37,14 @@ def test_health_readiness_and_diagnostics_auth(client):
     assert response.json()["issue"]["occurrences"] == 1
 
 
+def test_frontend_origin_gets_cors_headers_on_auth_errors(client):
+    response = client.get("/api/overview", headers={"Origin": "http://localhost:8080"})
+
+    assert response.status_code == 401
+    assert response.headers["access-control-allow-origin"] == "http://localhost:8080"
+    assert response.headers["access-control-allow-credentials"] == "true"
+
+
 def test_issue_grouping_status_and_pr_comment(client):
     login = client.post("/api/auth/login", json={"password": "test-passphrase-012345"}, headers={"Origin": "http://testserver"})
     headers = {"Origin": "http://testserver", "X-CSRF-Token": login.json()["csrf_token"]}

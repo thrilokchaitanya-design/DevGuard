@@ -1,0 +1,7 @@
+SESSION_SECRET=generate-a-random-value-at-least-32-characters-long
+DEMO_ACCESS_PASSWORD=replace-with-a-private-demo-passphrase
+ALLOWED_ORIGINS=http://127.0.0.1:8787
+GITHUB_WEBHOOK_SECRET=
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+LOG_RETENTION_DAYS=30

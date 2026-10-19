@@ -29,12 +29,13 @@ describe('public site routes', () => {
     window.history.replaceState({}, '', '/docs')
     render(<MemoryRouter initialEntries={['/docs']}><SitePages /></MemoryRouter>)
     expect(screen.getByRole('heading', { name: /Run DevGuard in your own environment/i })).toBeInTheDocument()
-    expect(screen.getByText(/not been deployed as a hosted service/i)).toBeInTheDocument()
+    expect(screen.getByText(/live demo runs on Cloudflare Workers with Cloudflare D1/i)).toBeInTheDocument()
   })
 
   it('shows an offline state if the API session cannot be reached', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('API unavailable')))
     render(<MemoryRouter initialEntries={['/app']}><Dashboard /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/API unavailable/i))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Cannot connect to the DevGuard API/i))
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/\[object Object\]|port 8000/i)
   })
 })
